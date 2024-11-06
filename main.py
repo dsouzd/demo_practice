@@ -31,23 +31,39 @@ def get_db_connection():
 async def register_user(user: UserRegistration):
     hashed_password = hash_password(user.password)
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
 
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT 1 FROM user_data.user_details WHERE email = %s", [user.email])
+        existing_user = cursor.fetchone()
+
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
         cursor.execute(
             sql.SQL("INSERT INTO user_data.user_details (first_name, last_name, email, password) VALUES (%s, %s, %s, %s)"),
             [user.first_name, user.last_name, user.email, hashed_password]
         )
         conn.commit()
-        cursor.close()
-        conn.close()
+
         return {"message": "User registered successfully"}
+    
     except Exception as e:
-        conn.rollback()
-        cursor.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Error registering user")
+        if conn is not None:
+            conn.rollback()
+
+        raise HTTPException(status_code=400, detail=f"Error registering user: {str(e)}")
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 
 class UserLogin(BaseModel):
     email: EmailStr
