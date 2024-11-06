@@ -4,3 +4,4 @@ psycopg2
 bcrypt
 python-dotenv
 passlib
+email-validator
