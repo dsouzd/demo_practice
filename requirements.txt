@@ -5,3 +5,4 @@ bcrypt
 python-dotenv
 passlib
 email-validator
+starlette
