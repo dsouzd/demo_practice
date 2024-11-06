@@ -1,76 +1,77 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-import bcrypt
 from passlib.context import CryptContext
+import psycopg2
+from psycopg2 import sql
+import os
+from dotenv import load_dotenv
 
-# Database setup
-DATABASE_URL = "sqlite:///./test.db"  # Replace with your actual DB URL
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+load_dotenv()
 
-# Password hashing setup
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# FastAPI app
 app = FastAPI()
 
-# Pydantic models
-class UserCreate(BaseModel):
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+class UserRegistration(BaseModel):
+    first_name: str
+    last_name: str
     email: EmailStr
     password: str
 
-class UserInDB(UserCreate):
-    hashed_password: str
-
-# Database model
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-# Dependency to get the DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Function to hash the password
-def hash_password(password: str):
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-# Function to verify password
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def get_db_connection():
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
-# User registration endpoint
-@app.post("/register/")
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    # Check if the user already exists
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
+@app.post("/register")
+async def register_user(user: UserRegistration):
     hashed_password = hash_password(user.password)
-    db_user = User(email=user.email, hashed_password=hashed_password)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return {"msg": "User registered successfully"}
 
-@app.post("/login/")
-def login(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if not db_user or not verify_password(user.password, db_user.hashed_password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            sql.SQL("INSERT INTO user_data.user_details (first_name, last_name, email, password) VALUES (%s, %s, %s, %s)"),
+            [user.first_name, user.last_name, user.email, hashed_password]
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return {"message": "User registered successfully"}
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Error registering user")
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+@app.post("/login")
+async def validate_user(user: UserLogin):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT user_id, password FROM user_data.user_details WHERE email = %s", [user.email])
+    result = cursor.fetchone()
+
+    if result is None:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+
+    stored_password_hash = result[1]
+    if not pwd_context.verify(user.password, stored_password_hash):
+        cursor.close()
+        conn.close()
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"msg": "Login successful"}
+
+    cursor.close()
+    conn.close()
+    return {"message": "Login successful"}

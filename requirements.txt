@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-sqlalchemy
-pydantic
+fastapi 
+uvicorn 
+psycopg2 
 bcrypt
+python-dotenv
 passlib
