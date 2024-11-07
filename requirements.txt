@@ -6,3 +6,4 @@ python-dotenv
 passlib
 email-validator
 starlette
+passlib[argon2]
