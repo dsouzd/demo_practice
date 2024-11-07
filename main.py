@@ -44,6 +44,7 @@ async def register_user(user: UserRegistration):
     cursor = None
 
     try:
+        print("hello")
         conn = get_db_connection()
         cursor = conn.cursor()
 
